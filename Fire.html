@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset=UTF-8" />
+<title>Forest Fire</title>
+<style>
+html, body {
+background-color: #F0F8FF;
+padding: 0;
+margin: 0;
+font-size: 12px;
+line-height: 20px;
+}
+h1, h2, h3, h4, h5, h6 {
+font-size: 14px;
+padding: 0;
+margin: 0;
+}
+h1 {
+font-size: 16px;
+line-height: 30px;
+}
+#wrapper {
+position: relative;
+margin: 10px 20px;
+}
+#board {
+border: solid 1px #333;
+margin-bottom: 20px;
+}
+#info {
+display: none;
+}
+#panel {
+display: none;
+width: 170px;
+position: absolute;
+top: 20px;
+left: 660px;
+}
+#panel #panel-content {
+margin-bottom: 20px;
+}
+#panel #panel-content input {
+width: 5em;
+}
+span.info {
+color: #808080;
+}
+input{
+background-color: #55AAFF;
+border: 1px dotted yellow;
+color: aliceblue;
+}
+</style>
+
+<script>
+
+var WIDTH = 640,
+	HEIGHT = 480,
+	GROWTH_RATE = 0.02, // 生长率
+	DEATH_RATE = 0.001, // 树木死亡率
+	SELF_IGNITING_RATE = 0.001, // 死亡树木自燃率
+	PERCENTAGE_OF_FOREST_COVER = 0.01, // 初始森林覆盖率
+	EXTENT = 5; // 传播距离
+
+var forest = {
+	width: WIDTH,
+	height: HEIGHT,
+	canvas: null,
+	ctx: null,
+	imgd: null,
+	i: {},
+	n: {
+		trees: 0, // 总诞生的树木数
+		fires: 0, // 总火灾数
+		burned: 0, // 被烧毁的树木总数
+		current_trees: 0 // 当前树木总数
+	},
+	setPix: function (p, r, g, b, a) {
+		this.pix[p] = r;
+		this.pix[p + 1] = g;
+		this.pix[p + 2] = b;
+		this.pix[p + 3] = a;
+	},
+	init: function (canvas, percentage_of_forest_cover) {
+		if (!this.canvas) {
+			this.canvas = canvas;
+			this.ctx = canvas.getContext("2d");
+			this.imgd = this.ctx.createImageData(this.width, this.height);
+			this.pix = this.imgd.data;
+
+			this.i.trees = document.getElementById("trees-total");
+			this.i.fires = document.getElementById("fires-total");
+			this.i.burned = document.getElementById("trees-burned");
+			this.i.current_trees = document.getElementById("trees-current");
+		}
+
+		this.clear();
+
+		var pc = percentage_of_forest_cover || PERCENTAGE_OF_FOREST_COVER;
+		this.map(function (x, y, p) {
+			if (pc >= Math.random()) {
+				this.newTree(p);
+			}
+		});
+		this.paint()
+	},
+	clear: function () {
+		this.map(function (x, y, p) {
+			this.setPix(p, 0, 0, 0, 0);
+		});
+	},
+	_pos: function (x, y) {
+		return (x + WIDTH * y) << 2;
+	},
+	map: function (f) {
+		for (var y = 0; y < HEIGHT; y ++) {
+			for (var x = 0; x < WIDTH; x ++) {
+				p = (x + WIDTH * y) << 2;
+				f.call(this, x, y, p, arguments);
+			}
+		}
+	},
+	newTree: function (p) {
+		this.setPix(p, 0, 200, 0, 255);
+		/*if (this.pix[p + 1] == 200) {
+			this.n.current_trees ++;
+			this.n.trees ++;
+		}*/
+	},
+	treeBurned: function () {
+		this.n.burned ++;
+		this.n.trees --;
+	},
+	paint: function () {
+		this.ctx.putImageData(this.imgd, 0, 0);
+	},
+	getNeighbors: function (x, y) {
+		var a = [];
+		if ((x + 1) % WIDTH) {
+			a.push(this._pos(x + 1, y));
+			if ((y + 1) % HEIGHT)
+				a.push(this._pos(x + 1, y + 1));
+		}
+		if (x > 0) {
+			a.push(this._pos(x - 1, y));
+			if (y > 0)
+				a.push(this._pos(x - 1, y - 1));
+		}
+		if ((y + 1) % HEIGHT) {
+			a.push(this._pos(x, y + 1));
+			if (x > 0)
+				a.push(this._pos(x - 1, y + 1));
+		}
+		if (y > 0) {
+			a.push(this._pos(x, y - 1));
+			if ((x + 1) % WIDTH)
+				a.push(this._pos(x + 1, y - 1));
+		}
+		return a;
+	},
+	fire: function (x, y, p) {
+		p = p || (x + WIDTH * y) << 2;
+		this.setPix(p, 254, 100, 0, 255);
+		this.n.fires ++;
+	},
+	extinguish: function (p) {
+		var c = this.pix[p];
+		if (c == 255)
+			this.n.fires --;
+		this.setPix(p, 200, 0, 0, 255);
+	},
+	fireSpread: function (x, y, p) {
+		var c = this.pix[p];
+		if (c == 254) {
+			this.pix[p] = 255;
+			return;
+		} else if (c > 0 && c != 255 && this.pix[p + 1] == 0) {
+			c -= 20;
+			if (c < 0) c = 0;
+			this.pix[p] = c;
+			return;
+		}
+		if (c != 255) return;
+
+		// 熄灭
+		this.extinguish(p);
+		var nbs = this.getNeighbors(x, y), i, l, p;
+		nbs.sort(function (a, b) {return 0.5 - Math.random();});
+		for (i = 0, l = nbs.length; i < l; i ++) {
+			p = nbs[i];
+			c = this.pix[p + 1];
+			if (c == 200 || c == 180) {
+				this.fire(0, 0, p);
+				this.treeBurned();
+			}
+		}
+	},
+	grow: function (x, y, p) {
+		// 位置 x, y 的位置成长
+		var c = this.pix[p + 1],
+			rx, ry, i, d;
+
+		if (c == 0) {
+			c = this.pix[p + 3];
+			if (c > 0) {
+				c -= 5;
+				if (c < 0) c = 0;
+				this.pix[p + 3] = c;
+			} else {
+				this.setPix(p, 0, 0, 0, 0);
+			}
+			return;
+		} else if (c == 180) {
+			if (Math.random() < SELF_IGNITING_RATE) {
+				this.fire(x, y, p);
+				this.treeBurned();
+			}
+			return;
+		}
+
+		if (Math.random() < DEATH_RATE) {
+			this.setPix(p, 220, 180, 135, 255);
+		} else if (Math.random() < GROWTH_RATE) {
+			d = Math.ceil(GROWTH_RATE);
+			for (i = 0; i < d; i ++) {
+				rx = Math.floor(EXTENT * Math.random()) * (Math.random() < 0.5 ? -1 : 1);
+				ry = Math.floor(EXTENT * Math.random()) * (Math.random() < 0.5 ? -1 : 1);
+				x += rx;
+				y += ry;
+				if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+					p = (x + WIDTH * y) << 2;
+					if (this.pix[p + 3] == 0)
+						this.newTree(p);
+				}
+			}
+		}
+	},
+	info: function () {
+		for (var k in this.n) {
+			this.i[k].innerHTML = this.n[k];
+		}
+	},
+	step: function () {
+		this.map(function (x, y, p) {
+			this.grow(x, y, p);
+			this.fireSpread(x, y, p);
+		});
+		this.paint();
+	}
+};
+
+function ConfigParam(v, title, desc) {
+	var html = "<div class=\"config-param\">"
+		+ title + "：<input type=\"text\" id=\"config-param-" + v + "\""
+		+ " value=\"" + eval(v) + "\""
+		+ " onchange=\"javascript:if(!this.value.match(/^\\d+(\\.\\d+)?$/))"
+		+ "{alert('invalid value!');this.value=eval('" + v + "');"
+		+ "this.focus();}else{" + v + "=this.value;}\" />"
+		+ (desc ? "<br /><span class=\"desc\">" + desc + "</span>" : "")
+		+ "</div>";
+	document.getElementById("panel-content").innerHTML += html;
+
+	this.v = v;
+	this.obj = document.getElementById("config-param-" + v);
+	this.init();
+}
+
+ConfigParam.prototype = {
+	init: function () {
+		var _this = this;
+		/*this.obj.onchange = function () {
+			//alert(_this.v + " = " + this.value);
+			//eval(_this.v + " = " + this.value);
+		};*/
+	}
+};
+
+
+function start(board, canvas) {
+	forest.init(canvas);
+
+	var f = function () {
+		forest.step();
+		//forest.info();
+
+		setTimeout(f, 100);
+	};
+
+	f();
+}
+
+window.onload = function () {
+	var board = document.getElementById("board"),
+		canvas = document.getElementById("canvas-main");
+
+	if (!canvas.getContext) return; // 不支持canvas
+	document.getElementById("panel").style.display = "block";
+
+	board.style.width = WIDTH + "px";
+	board.style.height = HEIGHT + "px";
+	canvas.setAttribute("width", WIDTH);
+	canvas.setAttribute("height", HEIGHT);
+	canvas.onclick = function (e) {
+		var wra = document.getElementById("wrapper");
+		forest.fire(
+			//e.clientX - canvas.offsetLeft + document.body.scrollLeft,
+			//e.clientY - canvas.offsetTop + document.body.scrollTop
+			e.clientX - wra.offsetLeft - canvas.offsetLeft + document.body.scrollLeft,
+			e.clientY - wra.offsetTop - canvas.offsetTop + document.body.scrollTop
+		);
+	};
+
+	document.getElementById("btn-reset").onclick = function () {
+		start(board, canvas);
+	};
+
+	var vals = [
+		["GROWTH_RATE", "树木生长率"],
+		["DEATH_RATE", "树木死亡率"],
+		["SELF_IGNITING_RATE", "枯树自燃率"],
+		["EXTENT", "生长传播距离"],
+		["PERCENTAGE_OF_FOREST_COVER", "森林初始覆盖率"]
+	], i;
+	for (i = 0; i < vals.length; i ++) {
+		new ConfigParam(vals[i][0], vals[i][1]);
+	}
+
+	start(board, canvas);
+};
+
+</script>
+</head>
+
+<body id="forest-fire" onselectstart="return false">
+	<div id="wrapper">
+		<h1>森林大火</h1>
+		<div id="board">
+			<canvas id="canvas-main">很抱歉，您的浏览器不支持 HTML5 Canvas 标签！</canvas>
+		</div>
+
+		<div id="panel">
+			<h2>设置</h2>
+			<div id="panel-content"></div>
+			<div id="panel-more">
+				<span class="info">
+					*注：上面的设置除“森林初始覆盖率”外更改后立即生效。如想完全重新开始试验，请点击下面的按钮。
+				</span><br />
+				<input type="button" id="btn-reset" value="重新开始" />
+			</div>
+		</div>
+
+		
+		<div id="about">
+			/*Created on 2022*/
+		</div>
+	</div>
+
+</body>
+</html>
